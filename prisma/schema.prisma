@@ -1,0 +1,31 @@
+// Prisma schema for the quiz app.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pooled connection (Supabase: port 6543, ?pgbouncer=true). Used by the app at runtime.
+  url = env("DATABASE_URL")
+  // Direct connection (Supabase: port 5432). Used by `prisma migrate` / `prisma db push`.
+  directUrl = env("DIRECT_URL")
+}
+
+model Question {
+  id        String   @id @default(cuid())
+  text      String
+  options   Option[]
+  createdAt DateTime @default(now())
+}
+
+model Option {
+  id         String   @id @default(cuid())
+  text       String
+  isCorrect  Boolean  @default(false)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+}
