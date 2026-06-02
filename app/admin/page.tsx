@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ADMIN_HEADER } from "@/lib/constants";
-import type { Question } from "@/lib/types";
+import type { Question, Submission } from "@/lib/types";
 
 const PW_KEY = "quiz_admin_pw";
 const MAX_OPTIONS = 6;
@@ -108,6 +108,10 @@ function AdminPanel({
   const [listError, setListError] = useState<string | null>(null);
   const [loadingList, setLoadingList] = useState(true);
 
+  const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [subsError, setSubsError] = useState<string | null>(null);
+  const [loadingSubs, setLoadingSubs] = useState(true);
+
   const [text, setText] = useState("");
   const [options, setOptions] = useState<OptionDraft[]>(emptyOptions());
   const [submitting, setSubmitting] = useState(false);
@@ -136,9 +140,34 @@ function AdminPanel({
     }
   }, []);
 
+  const loadSubmissions = useCallback(async () => {
+    setLoadingSubs(true);
+    setSubsError(null);
+    try {
+      const res = await fetch("/api/submissions", { headers: authHeaders() });
+      if (!res.ok) throw new Error();
+      setSubmissions(await res.json());
+    } catch {
+      setSubsError("Failed to load submissions.");
+    } finally {
+      setLoadingSubs(false);
+    }
+  }, [authHeaders]);
+
   useEffect(() => {
     loadQuestions();
-  }, [loadQuestions]);
+    loadSubmissions();
+  }, [loadQuestions, loadSubmissions]);
+
+  const stats = useMemo(() => {
+    if (submissions.length === 0) return { avgPct: 0, bestPct: 0 };
+    const pcts = submissions.map((s) =>
+      s.total > 0 ? (s.score / s.total) * 100 : 0
+    );
+    const avgPct = Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length);
+    const bestPct = Math.round(Math.max(...pcts));
+    return { avgPct, bestPct };
+  }, [submissions]);
 
   function setOptionText(index: number, newText: string) {
     setOptions((prev) =>
@@ -237,6 +266,74 @@ function AdminPanel({
           Log out
         </button>
       </div>
+
+      {/* Submissions / engagement */}
+      <section>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">
+            Submissions{" "}
+            <span className="text-slate-400">({submissions.length})</span>
+          </h2>
+          <button
+            onClick={loadSubmissions}
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-indigo-600 hover:bg-indigo-50"
+          >
+            Refresh
+          </button>
+        </div>
+
+        {loadingSubs ? (
+          <p className="mt-4 text-slate-500">Loading…</p>
+        ) : subsError ? (
+          <p className="mt-4 text-red-600">{subsError}</p>
+        ) : submissions.length === 0 ? (
+          <p className="mt-4 text-slate-500">
+            No one has submitted the quiz yet.
+          </p>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <StatCard
+                label="Total attempts"
+                value={String(submissions.length)}
+              />
+              <StatCard label="Average score" value={`${stats.avgPct}%`} />
+              <StatCard label="Best score" value={`${stats.bestPct}%`} />
+            </div>
+
+            <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left text-slate-500">
+                  <tr>
+                    <th className="px-4 py-2 font-medium">#</th>
+                    <th className="px-4 py-2 font-medium">Marks</th>
+                    <th className="px-4 py-2 font-medium">Score</th>
+                    <th className="px-4 py-2 font-medium">Submitted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submissions.map((s, i) => (
+                    <tr key={s.id} className="border-t border-slate-100">
+                      <td className="px-4 py-2 text-slate-500">
+                        {submissions.length - i}
+                      </td>
+                      <td className="px-4 py-2 font-medium text-slate-900">
+                        {s.score} / {s.total}
+                      </td>
+                      <td className="px-4 py-2 text-slate-600">
+                        {s.total > 0 ? Math.round((s.score / s.total) * 100) : 0}%
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">
+                        {new Date(s.createdAt).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </section>
 
       {/* Add question */}
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -369,6 +466,15 @@ function AdminPanel({
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4 text-center shadow-sm">
+      <p className="text-2xl font-bold text-indigo-600">{value}</p>
+      <p className="mt-1 text-xs font-medium text-slate-500">{label}</p>
     </div>
   );
 }

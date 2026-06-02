@@ -14,3 +14,10 @@ export type Question = {
   createdAt: string;
   options: QuizOption[];
 };
+
+export type Submission = {
+  id: string;
+  score: number;
+  total: number;
+  createdAt: string;
+};

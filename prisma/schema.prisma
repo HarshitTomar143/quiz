@@ -29,3 +29,13 @@ model Option {
 
   @@index([questionId])
 }
+
+// One row per completed quiz attempt, used for admin engagement stats.
+model Submission {
+  id        String   @id @default(cuid())
+  score     Int // marks the user got
+  total     Int // total marks available at the time
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

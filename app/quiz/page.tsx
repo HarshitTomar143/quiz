@@ -211,6 +211,17 @@ export default function QuizPage() {
     setAnswers((prev) => ({ ...prev, [q.id]: optionId }));
   }
 
+  function finishQuiz() {
+    setPhase("results");
+    // Record this attempt for admin engagement stats (best-effort —
+    // a failure here must never block the user from seeing their result).
+    fetch("/api/submissions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ score, total: questions.length }),
+    }).catch(() => {});
+  }
+
   return (
     <div className="space-y-6">
       {/* Progress */}
@@ -278,7 +289,7 @@ export default function QuizPage() {
         </button>
         {isLast ? (
           <button
-            onClick={() => setPhase("results")}
+            onClick={finishQuiz}
             className="rounded-lg bg-green-600 px-5 py-2 font-medium text-white transition hover:bg-green-700"
           >
             Finish
