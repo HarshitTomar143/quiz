@@ -7,9 +7,18 @@ import type { Question } from "@/lib/types";
 // Shown in the popup that appears before the quiz starts.
 // Edit these lines to change the disclaimer text.
 const DISCLAIMER_PARAGRAPHS = [
-  "This checker calculates your result mathematically using a predicted answer key — not the official answer key released by the examination board.",
-  "The purpose of this app is only to give you a rough estimate of how many marks you may have scored. It is an approximate guess, not your final or official result.",
-  "Actual marks may differ once the official answer key is published. Please use this score for self-evaluation purposes only.",
+  "यह चेकर आपके परिणाम की गणना एक अनुमानित उत्तर कुंजी के आधार पर गणितीय रूप से करता है — न कि परीक्षा बोर्ड द्वारा जारी आधिकारिक उत्तर कुंजी के आधार पर।",
+  "इस ऐप का उद्देश्य केवल आपको एक मोटा अनुमान देना है कि आपने लगभग कितने अंक प्राप्त किए होंगे। यह एक अनुमानित अंदाज़ा है, आपका अंतिम या आधिकारिक परिणाम नहीं।",
+  "आधिकारिक उत्तर कुंजी जारी होने के बाद वास्तविक अंक भिन्न हो सकते हैं। कृपया इस स्कोर का उपयोग केवल स्व-मूल्यांकन के लिए करें।",
+];
+
+// Shown in the "How it works" popup opened from the (i) info button.
+// Edit these steps to change the on-screen instructions.
+const INSTRUCTION_STEPS = [
+  "हर प्रश्न में वही विकल्प चुनें जो आपने वास्तविक परीक्षा में चुना था।",
+  "जिस प्रश्न पर बाद में लौटना चाहते हैं उसे चिह्नित करने के लिए “Flag for review” का उपयोग करें, और प्रश्नों के बीच जाने के लिए “All questions” का।",
+  "अपने सभी उत्तर भरने के बाद, अपना अनुमानित स्कोर और चयन की संभावना देखने के लिए “Submit quiz” पर टैप करें।",
+  "आपके परिणाम के साथ एक 6-अंकों का कोड मिलेगा — इसे सहेज लें ताकि बाद में बिना दोबारा टेस्ट दिए वही परिणाम फिर से देख सकें।",
 ];
 
 // Number of correct answers at/above which the report card shows a
@@ -57,6 +66,298 @@ function clearSavedProgress() {
   }
 }
 
+// Small round "i" info button. Opens the instructions popup.
+function InfoButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label="How it works"
+      title="How it works"
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-300 bg-white font-serif text-base font-bold italic text-indigo-600 transition hover:bg-indigo-50"
+    >
+      i
+    </button>
+  );
+}
+
+// "How it works" popup explaining how to use the predictor.
+function InstructionsModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+      <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl sm:p-8">
+        <button
+          onClick={onClose}
+          aria-label="Close instructions"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+        >
+          <span className="text-xl leading-none">✕</span>
+        </button>
+
+        <h2 className="text-xl font-bold text-slate-900">यह कैसे काम करता है</h2>
+        <p className="mt-2 text-sm text-slate-600">
+          अपना परिणाम जानने के लिए अपनी परीक्षा यहाँ दोबारा भरें:
+        </p>
+        <ol className="mt-4 space-y-3">
+          {INSTRUCTION_STEPS.map((step, i) => (
+            <li key={i} className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
+                {i + 1}
+              </span>
+              <span className="text-sm leading-relaxed text-slate-700">
+                {step}
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <button
+          onClick={onClose}
+          className="mt-6 w-full rounded-lg bg-indigo-600 px-6 py-2.5 font-medium text-white transition hover:bg-indigo-700"
+        >
+          समझ गया
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// A creative, self-contained SVG "result card" shown on the results screen.
+// Everything (gauge, ribbons, code) is drawn as SVG so it scales crisply and
+// reads like a printed scorecard. Colours shift to green/amber based on whether
+// the user cleared the selection threshold.
+function ReportCard({
+  score,
+  total,
+  pct,
+  selected,
+  code,
+}: {
+  score: number;
+  total: number;
+  pct: number;
+  selected: boolean;
+  code: string | null;
+}) {
+  // Progress ring geometry.
+  const cx = 320;
+  const cy = 280;
+  const r = 92;
+  const circ = 2 * Math.PI * r;
+  const dash = (circ * Math.min(100, Math.max(0, pct))) / 100;
+
+  // Accent colours depend on the verdict.
+  const ringId = selected ? "ringPass" : "ringFail";
+  const verdictBg = selected ? "#ecfdf5" : "#fffbeb";
+  const verdictText = selected ? "#047857" : "#b45309";
+  const verdictMsg = selected
+    ? "You have a very good chance of selection!"
+    : "Keep practising — you can do better!";
+
+  const height = code ? 600 : 480;
+
+  return (
+    <svg
+      viewBox={`0 0 640 ${height}`}
+      className="block w-full"
+      role="img"
+      aria-label={`Result card: scored ${score} out of ${total}, ${pct} percent`}
+    >
+      <defs>
+        <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#4f46e5" />
+          <stop offset="55%" stopColor="#7c3aed" />
+          <stop offset="100%" stopColor="#c026d3" />
+        </linearGradient>
+        <linearGradient id="ringPass" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#6ee7b7" />
+          <stop offset="100%" stopColor="#10b981" />
+        </linearGradient>
+        <linearGradient id="ringFail" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#fde68a" />
+          <stop offset="100%" stopColor="#fb923c" />
+        </linearGradient>
+      </defs>
+
+      {/* Background + decorative flourishes */}
+      <rect x="0" y="0" width="640" height={height} fill="url(#bgGrad)" />
+      <circle cx="585" cy="55" r="95" fill="#ffffff" opacity="0.07" />
+      <circle cx="45" cy={height - 60} r="120" fill="#ffffff" opacity="0.07" />
+      <rect
+        x="18"
+        y="18"
+        width="604"
+        height={height - 36}
+        rx="22"
+        fill="none"
+        stroke="#ffffff"
+        strokeOpacity="0.35"
+        strokeWidth="1.5"
+        strokeDasharray="2 8"
+        strokeLinecap="round"
+      />
+
+      {/* Header */}
+      <text
+        x="320"
+        y="62"
+        textAnchor="middle"
+        fontSize="30"
+        aria-hidden="true"
+      >
+        🏆
+      </text>
+      <text
+        x="320"
+        y="104"
+        textAnchor="middle"
+        fill="#ffffff"
+        fontSize="22"
+        fontWeight="800"
+        letterSpacing="2"
+      >
+        UPTGT HINDI 2026
+      </text>
+      <text
+        x="320"
+        y="130"
+        textAnchor="middle"
+        fill="#ffffff"
+        fillOpacity="0.85"
+        fontSize="14"
+        fontWeight="600"
+        letterSpacing="5"
+      >
+        RESULT PREDICTOR
+      </text>
+
+      {/* Progress gauge */}
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="none"
+        stroke="#ffffff"
+        strokeOpacity="0.2"
+        strokeWidth="16"
+      />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="none"
+        stroke={`url(#${ringId})`}
+        strokeWidth="16"
+        strokeLinecap="round"
+        strokeDasharray={`${dash} ${circ}`}
+        transform={`rotate(-90 ${cx} ${cy})`}
+      />
+      <text
+        x={cx}
+        y={cy - 4}
+        textAnchor="middle"
+        fill="#ffffff"
+        fontSize="60"
+        fontWeight="800"
+      >
+        {score}
+      </text>
+      <text
+        x={cx}
+        y={cy + 30}
+        textAnchor="middle"
+        fill="#ffffff"
+        fillOpacity="0.85"
+        fontSize="17"
+        fontWeight="600"
+        letterSpacing="1"
+      >
+        out of {total}
+      </text>
+
+      {/* Percentage caption */}
+      <text
+        x="320"
+        y={cy + r + 36}
+        textAnchor="middle"
+        fill="#ffffff"
+        fontSize="18"
+        fontWeight="700"
+        letterSpacing="1"
+      >
+        {pct}% correct
+      </text>
+
+      {/* Verdict ribbon */}
+      <rect
+        x="100"
+        y={cy + r + 56}
+        width="440"
+        height="46"
+        rx="23"
+        fill={verdictBg}
+      />
+      <text
+        x="320"
+        y={cy + r + 85}
+        textAnchor="middle"
+        fill={verdictText}
+        fontSize="16"
+        fontWeight="700"
+      >
+        {selected ? "🎉 " : ""}
+        {verdictMsg}
+      </text>
+
+      {/* Result code — save & re-open later */}
+      {code && (
+        <>
+          <text
+            x="320"
+            y={cy + r + 138}
+            textAnchor="middle"
+            fill="#ffffff"
+            fillOpacity="0.85"
+            fontSize="12"
+            fontWeight="600"
+            letterSpacing="3"
+          >
+            YOUR RESULT CODE
+          </text>
+          <rect
+            x="205"
+            y={cy + r + 150}
+            width="230"
+            height="54"
+            rx="14"
+            fill="#ffffff"
+          />
+          <text
+            x="320"
+            y={cy + r + 186}
+            textAnchor="middle"
+            fill="#4338ca"
+            fontSize="34"
+            fontWeight="800"
+            letterSpacing="8"
+          >
+            {code}
+          </text>
+          <text
+            x="320"
+            y={cy + r + 226}
+            textAnchor="middle"
+            fill="#ffffff"
+            fillOpacity="0.8"
+            fontSize="12"
+          >
+            Save it — enter it on the start screen to reopen this result.
+          </text>
+        </>
+      )}
+    </svg>
+  );
+}
+
 export default function QuizPage() {
   // The full set of questions as fetched. `questions` below is the working
   // list (shuffled for an attempt, or reordered to rebuild a saved result),
@@ -92,6 +393,7 @@ export default function QuizPage() {
   // UI toggles for the playing screen.
   const [showPalette, setShowPalette] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -336,7 +638,14 @@ export default function QuizPage() {
   if (phase === "disclaimer") {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4">
+        {showInstructions && (
+          <InstructionsModal onClose={() => setShowInstructions(false)} />
+        )}
         <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl sm:p-8">
+          {/* Info button — explains how to use the predictor. */}
+          <div className="absolute left-4 top-4">
+            <InfoButton onClick={() => setShowInstructions(true)} />
+          </div>
           {/* Cross icon — closing the disclaimer starts the quiz. */}
           <button
             onClick={start}
@@ -346,7 +655,16 @@ export default function QuizPage() {
             <span className="text-xl leading-none">✕</span>
           </button>
 
-          <h2 className="text-xl font-bold text-slate-900">Disclaimer</h2>
+          <div className="mb-5 mt-8 rounded-xl bg-linear-to-br from-indigo-600 via-violet-600 to-fuchsia-600 px-5 py-4 text-center">
+            <p className="text-lg font-extrabold tracking-wide text-white">
+              UPTGT HINDI 2026
+            </p>
+            <p className="text-xs font-semibold tracking-[0.3em] text-white/85">
+              RESULT PREDICTOR
+            </p>
+          </div>
+
+          <h2 className="text-xl font-bold text-slate-900">अस्वीकरण</h2>
           <div className="mt-3 space-y-2 text-sm leading-relaxed text-slate-600">
             {DISCLAIMER_PARAGRAPHS.map((p, i) => (
               <p key={i}>{p}</p>
@@ -357,7 +675,7 @@ export default function QuizPage() {
             onClick={start}
             className="mt-6 w-full rounded-lg bg-indigo-600 px-6 py-2.5 font-medium text-white transition hover:bg-indigo-700"
           >
-            Start quiz
+            क्विज़ शुरू करें
           </button>
 
           {/* Re-open a past result by its 6-digit code. */}
@@ -415,67 +733,37 @@ export default function QuizPage() {
     const selected = displayScore >= SELECTION_THRESHOLD;
     return (
       <div className="space-y-6">
-        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-2xl font-bold text-slate-900">Your score</h1>
-          <p className="mt-3 text-5xl font-bold text-indigo-600">
-            {displayScore}/{displayTotal}
-          </p>
-          <p className="mt-1 text-slate-600">{pct}% correct</p>
+        <div className="overflow-hidden rounded-2xl shadow-xl">
+          <ReportCard
+            score={displayScore}
+            total={displayTotal}
+            pct={pct}
+            selected={selected}
+            code={resultCode}
+          />
 
-          {/* Selection-chance verdict based on the number of correct answers. */}
-          <div
-            className={`mx-auto mt-5 max-w-sm rounded-xl border p-4 ${
-              selected
-                ? "border-green-200 bg-green-50"
-                : "border-amber-200 bg-amber-50"
-            }`}
-          >
-            <p
-              className={`text-base font-semibold ${
-                selected ? "text-green-700" : "text-amber-700"
-              }`}
-            >
-              {selected
-                ? "🎉 You have a very good chance of selection!"
-                : "Sorry — try better next time."}
+          <div className="bg-white px-6 pb-7 pt-1 text-center">
+            <div className="mt-2 flex justify-center gap-3">
+              <button
+                onClick={start}
+                className="rounded-lg bg-indigo-600 px-5 py-2 font-medium text-white hover:bg-indigo-700"
+              >
+                Check again
+              </button>
+              <Link
+                href="/"
+                className="rounded-lg border border-slate-300 px-5 py-2 font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Home
+              </Link>
+            </div>
+
+            {/* Tiny disclaimer — the score is produced with the help of AI. */}
+            <p className="mt-5 text-xs text-slate-400">
+              This score is calculated with the help of AI and is an approximate
+              estimate, not your official result.
             </p>
           </div>
-
-          {/* The code lets the user re-open this exact result later. */}
-          {resultCode && (
-            <div className="mx-auto mt-6 max-w-sm rounded-xl border border-indigo-200 bg-indigo-50 p-4">
-              <p className="text-sm text-slate-600">
-                Your result code — save it to view this result again later:
-              </p>
-              <p className="mt-1 text-3xl font-bold tracking-widest text-indigo-700">
-                {resultCode}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Enter it on the start screen to reopen this result.
-              </p>
-            </div>
-          )}
-
-          <div className="mt-6 flex justify-center gap-3">
-            <button
-              onClick={start}
-              className="rounded-lg bg-indigo-600 px-5 py-2 font-medium text-white hover:bg-indigo-700"
-            >
-              Check again
-            </button>
-            <Link
-              href="/"
-              className="rounded-lg border border-slate-300 px-5 py-2 font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Home
-            </Link>
-          </div>
-
-          {/* Tiny disclaimer — the score is produced with the help of AI. */}
-          <p className="mt-6 text-xs text-slate-400">
-            This score is calculated with the help of AI and is an approximate
-            estimate, not your official result.
-          </p>
         </div>
 
         <div className="space-y-4">
@@ -585,10 +873,15 @@ export default function QuizPage() {
 
   return (
     <div className="space-y-6">
+      {showInstructions && (
+        <InstructionsModal onClose={() => setShowInstructions(false)} />
+      )}
+
       {/* Progress */}
       <div>
         <div className="flex items-center justify-between text-sm text-slate-500">
-          <span>
+          <span className="flex items-center gap-2">
+            <InfoButton onClick={() => setShowInstructions(true)} />
             Question {current + 1} of {questions.length}
           </span>
           <button

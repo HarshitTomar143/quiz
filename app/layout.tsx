@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "UPT TGT Hindi Exam Checker",
-  description: "Practice quiz for the UPT TGT Hindi exam",
+  title: "UPTGT Hindi 2026 Result Predictor",
+  description: "Predict your UPTGT Hindi 2026 result",
 };
 
 export default function RootLayout({
@@ -35,7 +35,7 @@ export default function RootLayout({
               href="/"
               className="text-base font-bold text-indigo-600 sm:text-lg"
             >
-              UPT TGT Hindi Exam Checker
+              UPTGT HINDI 2026 RESULT PREDICTOR
             </Link>
           </nav>
         </header>
