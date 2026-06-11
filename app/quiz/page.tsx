@@ -15,15 +15,50 @@ const DISCLAIMER_PARAGRAPHS = [
 // Shown in the "How it works" popup opened from the (i) info button.
 // Edit these steps to change the on-screen instructions.
 const INSTRUCTION_STEPS = [
+  "अपनी श्रेणी (General/OBC/SC/ST) चुनें — आपकी चयन संभावना उसी श्रेणी की अपेक्षित कट-ऑफ से आँकी जाती है।",
   "हर प्रश्न में वही विकल्प चुनें जो आपने वास्तविक परीक्षा में चुना था।",
   "जिस प्रश्न पर बाद में लौटना चाहते हैं उसे चिह्नित करने के लिए “Flag for review” का उपयोग करें, और प्रश्नों के बीच जाने के लिए “All questions” का।",
   "अपने सभी उत्तर भरने के बाद, अपना अनुमानित स्कोर और चयन की संभावना देखने के लिए “Submit quiz” पर टैप करें।",
   "आपके परिणाम के साथ एक 6-अंकों का कोड मिलेगा — इसे सहेज लें ताकि बाद में बिना दोबारा टेस्ट दिए वही परिणाम फिर से देख सकें।",
 ];
 
-// Number of correct answers at/above which the report card shows a
-// positive selection-chance message.
-const SELECTION_THRESHOLD = 118;
+// ── Category / cut-off / vacancy data ──────────────────────────────────────
+// Source: UP TGT Recruitment 2022 — Hindi, Balak varg.
+// `cutoff` = number of correct answers at/above which the candidate is shown a
+// positive selection-chance message for that category.
+type Category = "UR" | "OBC" | "SC" | "ST";
+
+const CATEGORIES: {
+  id: Category;
+  label: string;
+  cutoff: number;
+  vacancies: number;
+}[] = [
+  { id: "UR", label: "General / UR", cutoff: 118, vacancies: 294 },
+  { id: "OBC", label: "OBC", cutoff: 116, vacancies: 125 },
+  { id: "SC", label: "SC", cutoff: 111, vacancies: 89 },
+  { id: "ST", label: "ST", cutoff: 111, vacancies: 1 },
+];
+
+const TOTAL_VACANCIES = 509;
+
+function categoryInfo(cat: Category | null) {
+  return CATEGORIES.find((c) => c.id === cat) ?? CATEGORIES[0];
+}
+
+// Self-contained professional avatars (drawn as SVG — no external images).
+const AVATARS: { id: string; bg: string; fg: string }[] = [
+  { id: "navy", bg: "#1e3a8a", fg: "#bfdbfe" },
+  { id: "teal", bg: "#0f766e", fg: "#99f6e4" },
+  { id: "slate", bg: "#334155", fg: "#cbd5e1" },
+  { id: "emerald", bg: "#065f46", fg: "#a7f3d0" },
+  { id: "amber", bg: "#92400e", fg: "#fde68a" },
+  { id: "rose", bg: "#9f1239", fg: "#fecdd3" },
+];
+
+function avatarInfo(id: string | null) {
+  return AVATARS.find((a) => a.id === id) ?? AVATARS[0];
+}
 
 // Where in-progress quiz state is saved so an accidental refresh doesn't
 // wipe the user's answers. Bump the version if the shape below changes.
@@ -34,6 +69,9 @@ type SavedProgress = {
   answers: Record<string, string>; // questionId -> selected optionId
   flagged?: string[]; // question ids the user marked for review
   current: number; // index into `order`
+  name?: string; // candidate profile, restored on resume
+  category?: Category;
+  avatar?: string;
 };
 
 type Phase =
@@ -41,6 +79,7 @@ type Phase =
   | "error"
   | "empty"
   | "disclaimer"
+  | "setup"
   | "resume"
   | "playing"
   | "results";
@@ -66,6 +105,145 @@ function clearSavedProgress() {
   }
 }
 
+// Draws a clean head-and-shoulders avatar silhouette inside a coloured disc.
+// Used both in the selection grid and embedded in the result card SVG.
+function AvatarGlyph({
+  cx,
+  cy,
+  r,
+  bg,
+  fg,
+  id,
+}: {
+  cx: number;
+  cy: number;
+  r: number;
+  bg: string;
+  fg: string;
+  id: string;
+}) {
+  const clipId = `avclip-${id}`;
+  return (
+    <>
+      <clipPath id={clipId}>
+        <circle cx={cx} cy={cy} r={r} />
+      </clipPath>
+      <circle cx={cx} cy={cy} r={r} fill={bg} />
+      <g clipPath={`url(#${clipId})`}>
+        <circle cx={cx} cy={cy - r * 0.12} r={r * 0.34} fill={fg} />
+        <ellipse
+          cx={cx}
+          cy={cy + r * 0.66}
+          rx={r * 0.58}
+          ry={r * 0.46}
+          fill={fg}
+        />
+      </g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r}
+        fill="none"
+        stroke="#ffffff"
+        strokeOpacity="0.35"
+        strokeWidth={r * 0.06}
+      />
+    </>
+  );
+}
+
+// A selectable avatar in the setup form.
+function AvatarButton({
+  avatar,
+  selected,
+  onClick,
+}: {
+  avatar: { id: string; bg: string; fg: string };
+  selected: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={selected}
+      aria-label={`Avatar ${avatar.id}`}
+      className={`rounded-full transition ${
+        selected
+          ? "ring-2 ring-blue-700 ring-offset-2"
+          : "opacity-80 hover:opacity-100"
+      }`}
+    >
+      <svg viewBox="0 0 64 64" className="h-12 w-12">
+        <AvatarGlyph
+          cx={32}
+          cy={32}
+          r={30}
+          bg={avatar.bg}
+          fg={avatar.fg}
+          id={`pick-${avatar.id}`}
+        />
+      </svg>
+    </button>
+  );
+}
+
+// The UP TGT 2022 Hindi (Balak) vacancy breakdown. The candidate's chosen
+// category column is highlighted.
+function VacancyTable({ selected }: { selected: Category | null }) {
+  const cols: { id: Category; label: string; value: string }[] = [
+    { id: "UR", label: "General", value: "294" },
+    { id: "OBC", label: "OBC", value: "125" },
+    { id: "SC", label: "SC", value: "89" },
+    { id: "ST", label: "ST", value: "01" },
+  ];
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200">
+      <div className="border-b border-slate-200 bg-slate-800 px-4 py-2.5">
+        <p className="text-sm font-semibold tracking-wide text-white">
+          UP TGT 2022 — Hindi (Balak) Vacancies
+        </p>
+      </div>
+      <table className="w-full text-center text-sm">
+        <thead>
+          <tr className="bg-slate-100 text-slate-600">
+            <th className="px-3 py-2 text-left font-semibold">Varg</th>
+            {cols.map((c) => (
+              <th
+                key={c.id}
+                className={`px-3 py-2 font-semibold ${
+                  selected === c.id ? "bg-blue-100 text-blue-900" : ""
+                }`}
+              >
+                {c.label}
+              </th>
+            ))}
+            <th className="px-3 py-2 font-semibold">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="text-slate-800">
+            <td className="px-3 py-2.5 text-left font-medium">Balak</td>
+            {cols.map((c) => (
+              <td
+                key={c.id}
+                className={`px-3 py-2.5 ${
+                  selected === c.id
+                    ? "bg-blue-50 font-bold text-blue-900"
+                    : ""
+                }`}
+              >
+                {c.value}
+              </td>
+            ))}
+            <td className="px-3 py-2.5 font-bold text-slate-900">509</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // Small round "i" info button. Opens the instructions popup.
 function InfoButton({ onClick }: { onClick: () => void }) {
   return (
@@ -73,7 +251,7 @@ function InfoButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       aria-label="How it works"
       title="How it works"
-      className="flex h-8 w-8 items-center justify-center rounded-full border border-indigo-300 bg-white font-serif text-base font-bold italic text-indigo-600 transition hover:bg-indigo-50"
+      className="flex h-8 w-8 items-center justify-center rounded-full border border-blue-300 bg-white font-serif text-base font-bold italic text-blue-800 transition hover:bg-blue-50"
     >
       i
     </button>
@@ -83,7 +261,7 @@ function InfoButton({ onClick }: { onClick: () => void }) {
 // "How it works" popup explaining how to use the predictor.
 function InstructionsModal({ onClose }: { onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 p-4">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/60 p-4">
       <div className="relative w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl sm:p-8">
         <button
           onClick={onClose}
@@ -100,7 +278,7 @@ function InstructionsModal({ onClose }: { onClose: () => void }) {
         <ol className="mt-4 space-y-3">
           {INSTRUCTION_STEPS.map((step, i) => (
             <li key={i} className="flex gap-3">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-sm font-semibold text-white">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-800 text-sm font-semibold text-white">
                 {i + 1}
               </span>
               <span className="text-sm leading-relaxed text-slate-700">
@@ -112,7 +290,7 @@ function InstructionsModal({ onClose }: { onClose: () => void }) {
 
         <button
           onClick={onClose}
-          className="mt-6 w-full rounded-lg bg-indigo-600 px-6 py-2.5 font-medium text-white transition hover:bg-indigo-700"
+          className="mt-6 w-full rounded-lg bg-blue-800 px-6 py-2.5 font-medium text-white transition hover:bg-blue-900"
         >
           समझ गया
         </button>
@@ -121,27 +299,38 @@ function InstructionsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-// A creative, self-contained SVG "result card" shown on the results screen.
-// Everything (gauge, ribbons, code) is drawn as SVG so it scales crisply and
-// reads like a printed scorecard. Colours shift to green/amber based on whether
-// the user cleared the selection threshold.
+// A self-contained SVG "result card" shown on the results screen. Restyled to
+// read like an official scorecard: a deep navy ground, the candidate's avatar
+// and name, a score gauge, a category-specific selection verdict, the relevant
+// vacancy figure, and the re-view code. Colours shift to emerald/amber based on
+// whether the candidate cleared the cut-off for their category.
 function ReportCard({
+  name,
   score,
   total,
   pct,
   selected,
+  cutoff,
+  categoryLabel,
+  vacancies,
+  avatarId,
   code,
 }: {
+  name: string | null;
   score: number;
   total: number;
   pct: number;
   selected: boolean;
+  cutoff: number;
+  categoryLabel: string;
+  vacancies: number;
+  avatarId: string;
   code: string | null;
 }) {
   // Progress ring geometry.
   const cx = 320;
-  const cy = 280;
-  const r = 92;
+  const cy = 332;
+  const r = 88;
   const circ = 2 * Math.PI * r;
   const dash = (circ * Math.min(100, Math.max(0, pct))) / 100;
 
@@ -150,38 +339,41 @@ function ReportCard({
   const verdictBg = selected ? "#ecfdf5" : "#fffbeb";
   const verdictText = selected ? "#047857" : "#b45309";
   const verdictMsg = selected
-    ? "You have a very good chance of selection!"
-    : "Keep practising — you can do better!";
+    ? "Strong chance of selection"
+    : "Below the expected cut-off — keep preparing";
 
-  const height = code ? 600 : 480;
+  const av = avatarInfo(avatarId);
+  const heading = name && name.trim() ? name.trim() : "Candidate";
+  const infoTop = cy + r + 130; // y of the first info line
+  const height = code ? 740 : 600;
 
   return (
     <svg
       viewBox={`0 0 640 ${height}`}
       className="block w-full"
       role="img"
-      aria-label={`Result card: scored ${score} out of ${total}, ${pct} percent`}
+      aria-label={`Result card for ${heading}: scored ${score} out of ${total}, ${pct} percent`}
     >
       <defs>
         <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#4f46e5" />
-          <stop offset="55%" stopColor="#7c3aed" />
-          <stop offset="100%" stopColor="#c026d3" />
+          <stop offset="0%" stopColor="#0f172a" />
+          <stop offset="55%" stopColor="#1e3a8a" />
+          <stop offset="100%" stopColor="#1e40af" />
         </linearGradient>
         <linearGradient id="ringPass" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#6ee7b7" />
-          <stop offset="100%" stopColor="#10b981" />
+          <stop offset="0%" stopColor="#34d399" />
+          <stop offset="100%" stopColor="#059669" />
         </linearGradient>
         <linearGradient id="ringFail" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#fde68a" />
-          <stop offset="100%" stopColor="#fb923c" />
+          <stop offset="0%" stopColor="#fbbf24" />
+          <stop offset="100%" stopColor="#d97706" />
         </linearGradient>
       </defs>
 
-      {/* Background + decorative flourishes */}
+      {/* Background + restrained decorative flourishes */}
       <rect x="0" y="0" width="640" height={height} fill="url(#bgGrad)" />
-      <circle cx="585" cy="55" r="95" fill="#ffffff" opacity="0.07" />
-      <circle cx="45" cy={height - 60} r="120" fill="#ffffff" opacity="0.07" />
+      <circle cx="590" cy="60" r="90" fill="#ffffff" opacity="0.05" />
+      <circle cx="40" cy={height - 70} r="120" fill="#ffffff" opacity="0.05" />
       <rect
         x="18"
         y="18"
@@ -190,40 +382,43 @@ function ReportCard({
         rx="22"
         fill="none"
         stroke="#ffffff"
-        strokeOpacity="0.35"
+        strokeOpacity="0.3"
         strokeWidth="1.5"
         strokeDasharray="2 8"
         strokeLinecap="round"
       />
 
-      {/* Header */}
+      {/* Candidate avatar + name */}
+      <AvatarGlyph cx={320} cy={92} r={40} bg={av.bg} fg={av.fg} id="card" />
       <text
         x="320"
-        y="62"
-        textAnchor="middle"
-        fontSize="30"
-        aria-hidden="true"
-      >
-        🏆
-      </text>
-      <text
-        x="320"
-        y="104"
+        y="166"
         textAnchor="middle"
         fill="#ffffff"
         fontSize="22"
         fontWeight="800"
-        letterSpacing="2"
+      >
+        {heading}
+      </text>
+      <text
+        x="320"
+        y="194"
+        textAnchor="middle"
+        fill="#ffffff"
+        fillOpacity="0.85"
+        fontSize="14"
+        fontWeight="700"
+        letterSpacing="3"
       >
         UPTGT HINDI 2026
       </text>
       <text
         x="320"
-        y="130"
+        y="216"
         textAnchor="middle"
         fill="#ffffff"
-        fillOpacity="0.85"
-        fontSize="14"
+        fillOpacity="0.7"
+        fontSize="11"
         fontWeight="600"
         letterSpacing="5"
       >
@@ -237,7 +432,7 @@ function ReportCard({
         r={r}
         fill="none"
         stroke="#ffffff"
-        strokeOpacity="0.2"
+        strokeOpacity="0.18"
         strokeWidth="16"
       />
       <circle
@@ -256,7 +451,7 @@ function ReportCard({
         y={cy - 4}
         textAnchor="middle"
         fill="#ffffff"
-        fontSize="60"
+        fontSize="58"
         fontWeight="800"
       >
         {score}
@@ -277,7 +472,7 @@ function ReportCard({
       {/* Percentage caption */}
       <text
         x="320"
-        y={cy + r + 36}
+        y={cy + r + 32}
         textAnchor="middle"
         fill="#ffffff"
         fontSize="18"
@@ -289,23 +484,45 @@ function ReportCard({
 
       {/* Verdict ribbon */}
       <rect
-        x="100"
-        y={cy + r + 56}
-        width="440"
+        x="90"
+        y={cy + r + 50}
+        width="460"
         height="46"
         rx="23"
         fill={verdictBg}
       />
       <text
         x="320"
-        y={cy + r + 85}
+        y={cy + r + 79}
         textAnchor="middle"
         fill={verdictText}
-        fontSize="16"
+        fontSize="15"
         fontWeight="700"
       >
-        {selected ? "🎉 " : ""}
         {verdictMsg}
+      </text>
+
+      {/* Category cut-off + vacancy facts */}
+      <text
+        x="320"
+        y={infoTop}
+        textAnchor="middle"
+        fill="#ffffff"
+        fillOpacity="0.9"
+        fontSize="14"
+        fontWeight="600"
+      >
+        {categoryLabel} cut-off: {cutoff} correct
+      </text>
+      <text
+        x="320"
+        y={infoTop + 24}
+        textAnchor="middle"
+        fill="#ffffff"
+        fillOpacity="0.75"
+        fontSize="13"
+      >
+        {categoryLabel} vacancies (Balak): {vacancies} of {TOTAL_VACANCIES}
       </text>
 
       {/* Result code — save & re-open later */}
@@ -313,7 +530,7 @@ function ReportCard({
         <>
           <text
             x="320"
-            y={cy + r + 138}
+            y={infoTop + 70}
             textAnchor="middle"
             fill="#ffffff"
             fillOpacity="0.85"
@@ -325,7 +542,7 @@ function ReportCard({
           </text>
           <rect
             x="205"
-            y={cy + r + 150}
+            y={infoTop + 82}
             width="230"
             height="54"
             rx="14"
@@ -333,9 +550,9 @@ function ReportCard({
           />
           <text
             x="320"
-            y={cy + r + 186}
+            y={infoTop + 118}
             textAnchor="middle"
-            fill="#4338ca"
+            fill="#1e3a8a"
             fontSize="34"
             fontWeight="800"
             letterSpacing="8"
@@ -344,7 +561,7 @@ function ReportCard({
           </text>
           <text
             x="320"
-            y={cy + r + 226}
+            y={infoTop + 158}
             textAnchor="middle"
             fill="#ffffff"
             fillOpacity="0.8"
@@ -371,6 +588,12 @@ export default function QuizPage() {
   // questionId -> true when marked for review
   const [flagged, setFlagged] = useState<Record<string, boolean>>({});
   const [current, setCurrent] = useState(0);
+
+  // Candidate profile, collected on the setup screen and shown on the result
+  // card. Persisted with the attempt so a result re-opened by code looks right.
+  const [userName, setUserName] = useState("");
+  const [category, setCategory] = useState<Category | null>(null);
+  const [avatarId, setAvatarId] = useState<string>(AVATARS[0].id);
 
   // Progress found in localStorage on load (the "Resume?" prompt uses this).
   const [saved, setSaved] = useState<SavedProgress | null>(null);
@@ -435,13 +658,16 @@ export default function QuizPage() {
       answers,
       flagged: Object.keys(flagged).filter((id) => flagged[id]),
       current,
+      name: userName,
+      category: category ?? undefined,
+      avatar: avatarId,
     };
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
     } catch {
       /* storage full or unavailable — non-fatal */
     }
-  }, [phase, questions, answers, flagged, current]);
+  }, [phase, questions, answers, flagged, current, userName, category, avatarId]);
 
   // Warn before leaving (refresh / close) mid-quiz. The browser shows its own
   // generic "Leave site?" dialog; the text below is ignored by modern browsers.
@@ -455,9 +681,17 @@ export default function QuizPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [phase]);
 
+  // Move from the disclaimer to the candidate setup screen.
+  function goToSetup() {
+    setResultCode(null);
+    setViewResult(null);
+    setPhase("setup");
+  }
+
   function start() {
     // Fresh attempt: shuffle the full question set and discard any saved
-    // progress or previously viewed result.
+    // progress or previously viewed result. The candidate profile (name,
+    // category, avatar) is kept so "Check again" reuses it.
     clearSavedProgress();
     setSaved(null);
     setResultCode(null);
@@ -496,6 +730,9 @@ export default function QuizPage() {
         total: number;
         answers: Record<string, string>;
         order: string[];
+        name?: string | null;
+        category?: Category | null;
+        avatar?: string | null;
       } = await res.json();
 
       // Rebuild the question list in the saved order (dropping any questions
@@ -514,6 +751,9 @@ export default function QuizPage() {
       setQuestions(ordered);
       setAnswers(validAnswers);
       setFlagged({});
+      setUserName(data.name ?? "");
+      setCategory(data.category ?? "UR");
+      setAvatarId(data.avatar ?? AVATARS[0].id);
       setResultCode(String(data.code));
       setViewResult({ score: data.score, total: data.total });
       setCodeInput("");
@@ -528,9 +768,14 @@ export default function QuizPage() {
 
   function resume() {
     if (!saved) {
-      start();
+      goToSetup();
       return;
     }
+    // Restore the candidate profile saved with the attempt.
+    setUserName(saved.name ?? "");
+    setCategory(saved.category ?? "UR");
+    setAvatarId(saved.avatar ?? AVATARS[0].id);
+
     // Re-order the freshly fetched questions to match the saved order, so the
     // user sees the same sequence. New questions (added since) go to the end;
     // questions that no longer exist are dropped.
@@ -619,12 +864,12 @@ export default function QuizPage() {
           <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <button
               onClick={resume}
-              className="flex-1 rounded-lg bg-indigo-600 px-6 py-2.5 font-medium text-white transition hover:bg-indigo-700"
+              className="flex-1 rounded-lg bg-blue-800 px-6 py-2.5 font-medium text-white transition hover:bg-blue-900"
             >
               Resume
             </button>
             <button
-              onClick={start}
+              onClick={goToSetup}
               className="flex-1 rounded-lg border border-slate-300 px-6 py-2.5 font-medium text-slate-700 transition hover:bg-slate-100"
             >
               Start over
@@ -646,16 +891,16 @@ export default function QuizPage() {
           <div className="absolute left-4 top-4">
             <InfoButton onClick={() => setShowInstructions(true)} />
           </div>
-          {/* Cross icon — closing the disclaimer starts the quiz. */}
+          {/* Cross icon — closing the disclaimer moves to the setup screen. */}
           <button
-            onClick={start}
-            aria-label="Close disclaimer and start quiz"
+            onClick={goToSetup}
+            aria-label="Close disclaimer and continue"
             className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
           >
             <span className="text-xl leading-none">✕</span>
           </button>
 
-          <div className="mb-5 mt-8 rounded-xl bg-linear-to-br from-indigo-600 via-violet-600 to-fuchsia-600 px-5 py-4 text-center">
+          <div className="mb-5 mt-8 rounded-xl bg-linear-to-br from-slate-900 via-blue-900 to-slate-800 px-5 py-4 text-center">
             <p className="text-lg font-extrabold tracking-wide text-white">
               UPTGT HINDI 2026
             </p>
@@ -672,10 +917,10 @@ export default function QuizPage() {
           </div>
 
           <button
-            onClick={start}
-            className="mt-6 w-full rounded-lg bg-indigo-600 px-6 py-2.5 font-medium text-white transition hover:bg-indigo-700"
+            onClick={goToSetup}
+            className="mt-6 w-full rounded-lg bg-blue-800 px-6 py-2.5 font-medium text-white transition hover:bg-blue-900"
           >
-            क्विज़ शुरू करें
+            आगे बढ़ें
           </button>
 
           {/* Re-open a past result by its 6-digit code. */}
@@ -704,18 +949,145 @@ export default function QuizPage() {
                   setCodeError(null);
                 }}
                 placeholder="123456"
-                className="w-32 rounded-lg border border-slate-300 px-3 py-2 tracking-widest outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                className="w-32 rounded-lg border border-slate-300 px-3 py-2 tracking-widest outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
               />
               <button
                 type="submit"
                 disabled={codeLoading || codeInput.length !== 6}
-                className="rounded-lg border border-indigo-300 px-4 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-40"
+                className="rounded-lg border border-blue-300 px-4 py-2 font-medium text-blue-800 transition hover:bg-blue-50 disabled:opacity-40"
               >
                 {codeLoading ? "Loading…" : "View result"}
               </button>
             </form>
             {codeError && (
               <p className="mt-2 text-sm text-red-600">{codeError}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase === "setup") {
+    return (
+      <div className="mx-auto max-w-2xl">
+        {showInstructions && (
+          <InstructionsModal onClose={() => setShowInstructions(false)} />
+        )}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {/* Crest header */}
+          <div className="bg-linear-to-br from-slate-900 via-blue-900 to-slate-800 px-6 py-6 text-center">
+            <p className="text-xl font-extrabold tracking-wide text-white">
+              UPTGT HINDI 2026
+            </p>
+            <p className="text-xs font-semibold tracking-[0.35em] text-white/80">
+              RESULT PREDICTOR
+            </p>
+          </div>
+
+          <div className="space-y-7 p-6 sm:p-8">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">
+                Before you begin
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Your selection chance is judged against the expected cut-off for
+                your category.
+              </p>
+            </div>
+
+            {/* Category */}
+            <div>
+              <label className="text-sm font-semibold text-slate-800">
+                Select your category
+              </label>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                {CATEGORIES.map((c) => {
+                  const active = category === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCategory(c.id)}
+                      aria-pressed={active}
+                      className={`rounded-xl border p-3 text-left transition ${
+                        active
+                          ? "border-blue-700 bg-blue-50 ring-2 ring-blue-200"
+                          : "border-slate-200 hover:border-blue-300 hover:bg-slate-50"
+                      }`}
+                    >
+                      <span className="block font-semibold text-slate-900">
+                        {c.label}
+                      </span>
+                      <span className="mt-0.5 block text-xs text-slate-500">
+                        Cut-off: {c.cutoff} correct · {c.vacancies} vacancies
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Name */}
+            <div>
+              <label
+                htmlFor="cand-name"
+                className="text-sm font-semibold text-slate-800"
+              >
+                Your name{" "}
+                <span className="font-normal text-slate-400">(optional)</span>
+              </label>
+              <input
+                id="cand-name"
+                type="text"
+                value={userName}
+                maxLength={40}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder="e.g. Anjali Sharma"
+                className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200"
+              />
+            </div>
+
+            {/* Avatar */}
+            <div>
+              <p className="text-sm font-semibold text-slate-800">
+                Choose an avatar
+              </p>
+              <div className="mt-3 flex flex-wrap gap-3">
+                {AVATARS.map((a) => (
+                  <AvatarButton
+                    key={a.id}
+                    avatar={a}
+                    selected={avatarId === a.id}
+                    onClick={() => setAvatarId(a.id)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Vacancy reference */}
+            <VacancyTable selected={category} />
+
+            {/* Actions */}
+            <div className="flex flex-col gap-3 sm:flex-row-reverse">
+              <button
+                onClick={start}
+                disabled={!category}
+                className="flex-1 rounded-lg bg-blue-800 px-6 py-2.5 font-medium text-white transition hover:bg-blue-900 disabled:opacity-40"
+              >
+                Begin test
+              </button>
+              <button
+                onClick={() => setPhase("disclaimer")}
+                className="flex-1 rounded-lg border border-slate-300 px-6 py-2.5 font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Back
+              </button>
+            </div>
+            {!category && (
+              <p className="-mt-3 text-center text-xs text-amber-600">
+                Please select your category to continue.
+              </p>
             )}
           </div>
         </div>
@@ -730,15 +1102,21 @@ export default function QuizPage() {
     const displayTotal = viewResult ? viewResult.total : questions.length;
     const pct =
       displayTotal > 0 ? Math.round((displayScore / displayTotal) * 100) : 0;
-    const selected = displayScore >= SELECTION_THRESHOLD;
+    const cat = categoryInfo(category);
+    const selected = displayScore >= cat.cutoff;
     return (
       <div className="space-y-6">
         <div className="overflow-hidden rounded-2xl shadow-xl">
           <ReportCard
+            name={userName}
             score={displayScore}
             total={displayTotal}
             pct={pct}
             selected={selected}
+            cutoff={cat.cutoff}
+            categoryLabel={cat.label}
+            vacancies={cat.vacancies}
+            avatarId={avatarId}
             code={resultCode}
           />
 
@@ -746,7 +1124,7 @@ export default function QuizPage() {
             <div className="mt-2 flex justify-center gap-3">
               <button
                 onClick={start}
-                className="rounded-lg bg-indigo-600 px-5 py-2 font-medium text-white hover:bg-indigo-700"
+                className="rounded-lg bg-blue-800 px-5 py-2 font-medium text-white hover:bg-blue-900"
               >
                 Check again
               </button>
@@ -861,6 +1239,9 @@ export default function QuizPage() {
         total: questions.length,
         answers,
         order: questions.map((item) => item.id),
+        name: userName.trim() || undefined,
+        category: category ?? undefined,
+        avatar: avatarId,
       }),
     })
       .then(async (res) => {
@@ -886,7 +1267,7 @@ export default function QuizPage() {
           </span>
           <button
             onClick={() => setShowPalette((s) => !s)}
-            className="font-medium text-indigo-600 transition hover:text-indigo-700"
+            className="font-medium text-blue-800 transition hover:text-blue-900"
           >
             {answeredCount} answered
             {flaggedCount > 0 && ` · ${flaggedCount} flagged`} ·{" "}
@@ -895,7 +1276,7 @@ export default function QuizPage() {
         </div>
         <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-200">
           <div
-            className="h-full bg-indigo-600 transition-all"
+            className="h-full bg-blue-800 transition-all"
             style={{
               width: `${((current + 1) / questions.length) * 100}%`,
             }}
@@ -908,7 +1289,7 @@ export default function QuizPage() {
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
             <span className="flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded bg-indigo-600" /> Answered
+              <span className="h-3 w-3 rounded bg-blue-800" /> Answered
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-3 w-3 rounded border border-slate-300 bg-white" />{" "}
@@ -918,7 +1299,7 @@ export default function QuizPage() {
               <span className="h-3 w-3 rounded bg-amber-400" /> Flagged
             </span>
             <span className="flex items-center gap-1.5">
-              <span className="h-3 w-3 rounded ring-2 ring-indigo-400" /> Current
+              <span className="h-3 w-3 rounded ring-2 ring-blue-400" /> Current
             </span>
           </div>
           <div className="grid max-h-64 grid-cols-6 gap-2 overflow-y-auto sm:grid-cols-10">
@@ -932,9 +1313,9 @@ export default function QuizPage() {
                   onClick={() => goTo(i)}
                   className={`relative flex h-9 w-full items-center justify-center rounded-lg border text-sm font-medium transition ${
                     isAnswered
-                      ? "border-indigo-600 bg-indigo-600 text-white"
+                      ? "border-blue-800 bg-blue-800 text-white"
                       : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  } ${isCurrent ? "ring-2 ring-indigo-400 ring-offset-1" : ""}`}
+                  } ${isCurrent ? "ring-2 ring-blue-400 ring-offset-1" : ""}`}
                 >
                   {i + 1}
                   {isItemFlagged && (
@@ -976,14 +1357,14 @@ export default function QuizPage() {
                 onClick={() => choose(o.id)}
                 className={`flex w-full items-center rounded-xl border px-4 py-3 text-left transition ${
                   active
-                    ? "border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200"
-                    : "border-slate-200 hover:border-indigo-300 hover:bg-slate-50"
+                    ? "border-blue-600 bg-blue-50 ring-2 ring-blue-200"
+                    : "border-slate-200 hover:border-blue-300 hover:bg-slate-50"
                 }`}
               >
                 <span
                   className={`mr-3 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
                     active
-                      ? "border-indigo-600 bg-indigo-600"
+                      ? "border-blue-700 bg-blue-700"
                       : "border-slate-300"
                   }`}
                 >
@@ -1019,7 +1400,7 @@ export default function QuizPage() {
               setCurrent((c) => Math.min(questions.length - 1, c + 1))
             }
             disabled={current === questions.length - 1}
-            className="rounded-lg bg-indigo-600 px-5 py-2 font-medium text-white transition hover:bg-indigo-700 disabled:opacity-40"
+            className="rounded-lg bg-blue-800 px-5 py-2 font-medium text-white transition hover:bg-blue-900 disabled:opacity-40"
           >
             Next
           </button>

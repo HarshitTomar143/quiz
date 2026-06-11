@@ -25,8 +25,11 @@ function generateCode(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
 
+// Categories whose selection cutoff the result card displays.
+const CATEGORIES = ["UR", "OBC", "SC", "ST"] as const;
+
 // POST /api/submissions — record a completed attempt. Public (any quiz taker).
-// Body: { score: number, total: number, answers: Record<string,string>, order: string[] }
+// Body: { score, total, answers, order, name?, category?, avatar? }
 // Returns the created submission, including its `code` for re-viewing later.
 export async function POST(req: Request) {
   let body: {
@@ -34,6 +37,9 @@ export async function POST(req: Request) {
     total?: unknown;
     answers?: unknown;
     order?: unknown;
+    name?: unknown;
+    category?: unknown;
+    avatar?: unknown;
   };
   try {
     body = await req.json();
@@ -74,12 +80,28 @@ export async function POST(req: Request) {
     return Response.json({ error: "Invalid order" }, { status: 400 });
   }
 
+  // Optional profile fields shown on the result card. All best-effort:
+  // anything malformed is simply dropped rather than rejecting the attempt.
+  const name =
+    typeof body.name === "string" && body.name.trim()
+      ? body.name.trim().slice(0, 40)
+      : null;
+  const category =
+    typeof body.category === "string" &&
+    (CATEGORIES as readonly string[]).includes(body.category)
+      ? body.category
+      : null;
+  const avatar =
+    typeof body.avatar === "string" && body.avatar.trim()
+      ? body.avatar.trim().slice(0, 20)
+      : null;
+
   // Generate a unique code, retrying on the (rare) chance of a collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = generateCode();
     try {
       const submission = await prisma.submission.create({
-        data: { code, score, total, answers, order },
+        data: { code, score, total, answers, order, name, category, avatar },
       });
       return Response.json(submission, { status: 201 });
     } catch (err) {

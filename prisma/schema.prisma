@@ -37,6 +37,9 @@ model Submission {
   code      String   @unique // 6-digit code the user enters to re-view this result
   score     Int // marks the user got
   total     Int // total marks available at the time
+  name      String? // optional name the user entered, shown on the result card
+  category  String? // UR | OBC | SC | ST — drives the selection cutoff shown
+  avatar    String? // id of the chosen avatar, shown on the result card
   answers   Json // { [questionId]: optionId } — used to rebuild the review screen
   order     Json // string[] of question ids in the order shown — to rebuild the review
   createdAt DateTime @default(now())

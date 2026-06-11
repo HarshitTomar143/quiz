@@ -29,13 +29,16 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
-        <header className="border-b border-slate-200 bg-white">
+        <header className="border-b border-slate-200 bg-slate-900">
           <nav className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
             <Link
               href="/"
-              className="text-base font-bold text-indigo-600 sm:text-lg"
+              className="text-base font-bold tracking-wide text-white sm:text-lg"
             >
-              UPTGT HINDI 2026 RESULT PREDICTOR
+              UPTGT HINDI 2026{" "}
+              <span className="font-semibold text-blue-300">
+                RESULT PREDICTOR
+              </span>
             </Link>
           </nav>
         </header>
