@@ -12,6 +12,10 @@ const DISCLAIMER_PARAGRAPHS = [
   "Actual marks may differ once the official answer key is published. Please use this score for self-evaluation purposes only.",
 ];
 
+// Number of correct answers at/above which the report card shows a
+// positive selection-chance message.
+const SELECTION_THRESHOLD = 118;
+
 // Where in-progress quiz state is saved so an accidental refresh doesn't
 // wipe the user's answers. Bump the version if the shape below changes.
 const STORAGE_KEY = "quiz-progress-v1";
@@ -408,6 +412,7 @@ export default function QuizPage() {
     const displayTotal = viewResult ? viewResult.total : questions.length;
     const pct =
       displayTotal > 0 ? Math.round((displayScore / displayTotal) * 100) : 0;
+    const selected = displayScore >= SELECTION_THRESHOLD;
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
@@ -416,6 +421,25 @@ export default function QuizPage() {
             {displayScore}/{displayTotal}
           </p>
           <p className="mt-1 text-slate-600">{pct}% correct</p>
+
+          {/* Selection-chance verdict based on the number of correct answers. */}
+          <div
+            className={`mx-auto mt-5 max-w-sm rounded-xl border p-4 ${
+              selected
+                ? "border-green-200 bg-green-50"
+                : "border-amber-200 bg-amber-50"
+            }`}
+          >
+            <p
+              className={`text-base font-semibold ${
+                selected ? "text-green-700" : "text-amber-700"
+              }`}
+            >
+              {selected
+                ? "🎉 You have a very good chance of selection!"
+                : "Sorry — try better next time."}
+            </p>
+          </div>
 
           {/* The code lets the user re-open this exact result later. */}
           {resultCode && (
@@ -446,6 +470,12 @@ export default function QuizPage() {
               Home
             </Link>
           </div>
+
+          {/* Tiny disclaimer — the score is produced with the help of AI. */}
+          <p className="mt-6 text-xs text-slate-400">
+            This score is calculated with the help of AI and is an approximate
+            estimate, not your official result.
+          </p>
         </div>
 
         <div className="space-y-4">
