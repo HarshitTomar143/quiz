@@ -7,9 +7,9 @@ import type { Question } from "@/lib/types";
 // Shown in the popup that appears before the quiz starts.
 // Edit these lines to change the disclaimer text.
 const DISCLAIMER_PARAGRAPHS = [
-  "यह चेकर आपके परिणाम की गणना एक अनुमानित उत्तर कुंजी के आधार पर गणितीय रूप से करता है — न कि परीक्षा बोर्ड द्वारा जारी आधिकारिक उत्तर कुंजी के आधार पर।",
-  "इस ऐप का उद्देश्य केवल आपको एक मोटा अनुमान देना है कि आपने लगभग कितने अंक प्राप्त किए होंगे। यह एक अनुमानित अंदाज़ा है, आपका अंतिम या आधिकारिक परिणाम नहीं।",
-  "आधिकारिक उत्तर कुंजी जारी होने के बाद वास्तविक अंक भिन्न हो सकते हैं। कृपया इस स्कोर का उपयोग केवल स्व-मूल्यांकन के लिए करें।",
+  "यह एक AI रिज़ल्ट प्रेडिक्टर है। अब आपके अंकों की गणना परीक्षा बोर्ड द्वारा जारी आधिकारिक उत्तर कुंजी के आधार पर की जाती है।",
+  "प्रत्येक प्रश्न 3.6 अंक का है। आपका परिणाम आपके सही उत्तरों की संख्या और कुल अंकों — दोनों के रूप में दिखाया जाता है।",
+  "यह AI आधारित अनुमान केवल स्व-मूल्यांकन के लिए है। चयन की अंतिम पुष्टि बोर्ड द्वारा जारी आधिकारिक परिणाम से ही मानी जाएगी।",
 ];
 
 // Shown in the "How it works" popup opened from the (i) info button.
@@ -41,6 +41,15 @@ const CATEGORIES: {
 ];
 
 const TOTAL_VACANCIES = 509;
+
+// Each question carries 3.6 marks. Used to convert a correct-answer count into
+// the marks shown on the result card.
+const MARKS_PER_QUESTION = 3.6;
+
+// Round marks to one decimal place (e.g. 118 correct → 424.8 marks).
+function toMarks(correct: number) {
+  return Math.round(correct * MARKS_PER_QUESTION * 10) / 10;
+}
 
 function categoryInfo(cat: Category | null) {
   return CATEGORIES.find((c) => c.id === cat) ?? CATEGORIES[0];
@@ -336,11 +345,11 @@ function ReportCard({
 
   // Accent colours depend on the verdict.
   const ringId = selected ? "ringPass" : "ringFail";
-  const verdictBg = selected ? "#ecfdf5" : "#fffbeb";
-  const verdictText = selected ? "#047857" : "#b45309";
+  const verdictBg = selected ? "#ecfdf5" : "#fee2e2";
+  const verdictText = selected ? "#047857" : "#b91c1c";
   const verdictMsg = selected
-    ? "Strong chance of selection"
-    : "Below the expected cut-off — keep preparing";
+    ? "High chance of selection"
+    : "You will not be selected";
 
   const av = avatarInfo(avatarId);
   const heading = name && name.trim() ? name.trim() : "Candidate";
@@ -469,7 +478,7 @@ function ReportCard({
         out of {total}
       </text>
 
-      {/* Percentage caption */}
+      {/* Marks + percentage caption */}
       <text
         x="320"
         y={cy + r + 32}
@@ -479,7 +488,7 @@ function ReportCard({
         fontWeight="700"
         letterSpacing="1"
       >
-        {pct}% correct
+        {toMarks(score)} marks · {pct}% correct
       </text>
 
       {/* Verdict ribbon */}
@@ -512,7 +521,7 @@ function ReportCard({
         fontSize="14"
         fontWeight="600"
       >
-        {categoryLabel} cut-off: {cutoff} correct
+        {categoryLabel} cut-off: {cutoff} correct ({toMarks(cutoff)} marks)
       </text>
       <text
         x="320"
@@ -1121,7 +1130,33 @@ export default function QuizPage() {
           />
 
           <div className="bg-white px-6 pb-7 pt-1 text-center">
-            <div className="mt-2 flex justify-center gap-3">
+            {/* Clear, unambiguous selection verdict based on the category cut-off. */}
+            {selected ? (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4">
+                <p className="text-base font-bold text-emerald-800">
+                  आपके चयन की प्रबल संभावना है!
+                </p>
+                <p className="mt-1.5 text-sm text-emerald-700">
+                  आपके अंक ({toMarks(displayScore)}) और सही उत्तर ({displayScore})
+                  आपकी श्रेणी की कट-ऑफ ({cat.cutoff} सही ·{" "}
+                  {toMarks(cat.cutoff)} अंक) से अधिक हैं। कृपया थोड़ा प्रतीक्षा
+                  करें जब तक हमें और अधिक डेटा प्राप्त हो जाए।
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-4">
+                <p className="text-base font-bold text-red-800">
+                  आपका चयन नहीं होगा — बेहतर भाग्य अगली बार।
+                </p>
+                <p className="mt-1.5 text-sm text-red-700">
+                  आपके अंक ({toMarks(displayScore)}) और सही उत्तर ({displayScore})
+                  आपकी श्रेणी की कट-ऑफ ({cat.cutoff} सही ·{" "}
+                  {toMarks(cat.cutoff)} अंक) से कम हैं।
+                </p>
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-center gap-3">
               <button
                 onClick={start}
                 className="rounded-lg bg-blue-800 px-5 py-2 font-medium text-white hover:bg-blue-900"
@@ -1136,10 +1171,10 @@ export default function QuizPage() {
               </Link>
             </div>
 
-            {/* Tiny disclaimer — the score is produced with the help of AI. */}
+            {/* Tiny disclaimer — this is an AI-based predictor. */}
             <p className="mt-5 text-xs text-slate-400">
-              This score is calculated with the help of AI and is an approximate
-              estimate, not your official result.
+              यह एक AI रिज़ल्ट प्रेडिक्टर है। यह स्कोर आधिकारिक उत्तर कुंजी पर
+              आधारित एक अनुमान है, आपका अंतिम आधिकारिक परिणाम नहीं।
             </p>
           </div>
         </div>
