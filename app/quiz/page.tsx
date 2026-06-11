@@ -54,6 +54,10 @@ function clearSavedProgress() {
 }
 
 export default function QuizPage() {
+  // The full set of questions as fetched. `questions` below is the working
+  // list (shuffled for an attempt, or reordered to rebuild a saved result),
+  // while `allQuestions` always holds the complete set for a fresh start.
+  const [allQuestions, setAllQuestions] = useState<Question[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [phase, setPhase] = useState<Phase>("loading");
 
@@ -65,6 +69,21 @@ export default function QuizPage() {
 
   // Progress found in localStorage on load (the "Resume?" prompt uses this).
   const [saved, setSaved] = useState<SavedProgress | null>(null);
+
+  // The 6-digit code for the result currently on the results screen (set after
+  // submitting, or when re-opening a past result by code).
+  const [resultCode, setResultCode] = useState<string | null>(null);
+  // When set, the results screen shows this stored score/total instead of
+  // recomputing — used when viewing a past result by code.
+  const [viewResult, setViewResult] = useState<{
+    score: number;
+    total: number;
+  } | null>(null);
+
+  // The "view a past result" code field on the disclaimer screen.
+  const [codeInput, setCodeInput] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [codeLoading, setCodeLoading] = useState(false);
 
   // UI toggles for the playing screen.
   const [showPalette, setShowPalette] = useState(false);
@@ -82,6 +101,7 @@ export default function QuizPage() {
           setPhase("empty");
           return;
         }
+        setAllQuestions(data);
         setQuestions(data);
         // Offer to resume if a previous attempt was left unfinished.
         const progress = readSavedProgress();
@@ -130,15 +150,74 @@ export default function QuizPage() {
   }, [phase]);
 
   function start() {
-    // Fresh attempt: shuffle for variety and discard any saved progress.
+    // Fresh attempt: shuffle the full question set and discard any saved
+    // progress or previously viewed result.
     clearSavedProgress();
     setSaved(null);
-    setQuestions((prev) => [...prev].sort(() => Math.random() - 0.5));
+    setResultCode(null);
+    setViewResult(null);
+    setQuestions([...allQuestions].sort(() => Math.random() - 0.5));
     setAnswers({});
     setFlagged({});
     setCurrent(0);
     setShowPalette(false);
     setPhase("playing");
+  }
+
+  // Re-open a past result from its 6-digit code. Rebuilds the same results
+  // screen (score + per-question review) the user saw when they finished.
+  async function viewPastResult() {
+    const code = codeInput.trim();
+    if (!/^\d{6}$/.test(code)) {
+      setCodeError("Enter the 6-digit code you were given.");
+      return;
+    }
+    setCodeError(null);
+    setCodeLoading(true);
+    try {
+      const res = await fetch(`/api/submissions/${code}`);
+      if (!res.ok) {
+        setCodeError(
+          res.status === 404
+            ? "No result found for that code."
+            : "Couldn’t load that result. Please try again."
+        );
+        return;
+      }
+      const data: {
+        code: string;
+        score: number;
+        total: number;
+        answers: Record<string, string>;
+        order: string[];
+      } = await res.json();
+
+      // Rebuild the question list in the saved order (dropping any questions
+      // that have since been deleted), and restore the saved answers.
+      const byId = new Map(allQuestions.map((q) => [q.id, q]));
+      const ordered: Question[] = [];
+      for (const id of data.order) {
+        const q = byId.get(id);
+        if (q) ordered.push(q);
+      }
+      const validAnswers: Record<string, string> = {};
+      for (const q of ordered) {
+        if (data.answers[q.id]) validAnswers[q.id] = data.answers[q.id];
+      }
+
+      setQuestions(ordered);
+      setAnswers(validAnswers);
+      setFlagged({});
+      setResultCode(String(data.code));
+      setViewResult({ score: data.score, total: data.total });
+      setCodeInput("");
+      setShowPalette(false);
+      setPhase("results");
+    } catch {
+      setCodeError("Couldn’t load that result. Please try again.");
+    } finally {
+      setCodeLoading(false);
+    }
   }
 
   function resume() {
@@ -149,7 +228,7 @@ export default function QuizPage() {
     // Re-order the freshly fetched questions to match the saved order, so the
     // user sees the same sequence. New questions (added since) go to the end;
     // questions that no longer exist are dropped.
-    const byId = new Map(questions.map((q) => [q.id, q]));
+    const byId = new Map(allQuestions.map((q) => [q.id, q]));
     const ordered: Question[] = [];
     for (const id of saved.order) {
       const q = byId.get(id);
@@ -276,21 +355,83 @@ export default function QuizPage() {
           >
             Start quiz
           </button>
+
+          {/* Re-open a past result by its 6-digit code. */}
+          <div className="mt-6 border-t border-slate-200 pt-5">
+            <p className="text-sm font-medium text-slate-700">
+              Already took the test?
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Enter the 6-digit code from your result to view it again.
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                viewPastResult();
+              }}
+              className="mt-3 flex gap-2"
+            >
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                value={codeInput}
+                onChange={(e) => {
+                  // Digits only, at most 6.
+                  setCodeInput(e.target.value.replace(/\D/g, "").slice(0, 6));
+                  setCodeError(null);
+                }}
+                placeholder="123456"
+                className="w-32 rounded-lg border border-slate-300 px-3 py-2 tracking-widest outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+              />
+              <button
+                type="submit"
+                disabled={codeLoading || codeInput.length !== 6}
+                className="rounded-lg border border-indigo-300 px-4 py-2 font-medium text-indigo-700 transition hover:bg-indigo-50 disabled:opacity-40"
+              >
+                {codeLoading ? "Loading…" : "View result"}
+              </button>
+            </form>
+            {codeError && (
+              <p className="mt-2 text-sm text-red-600">{codeError}</p>
+            )}
+          </div>
         </div>
       </div>
     );
   }
 
   if (phase === "results") {
-    const pct = Math.round((score / questions.length) * 100);
+    // When re-viewing a past result, show the stored score/total; otherwise
+    // use the score just computed from the current attempt.
+    const displayScore = viewResult ? viewResult.score : score;
+    const displayTotal = viewResult ? viewResult.total : questions.length;
+    const pct =
+      displayTotal > 0 ? Math.round((displayScore / displayTotal) * 100) : 0;
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
           <h1 className="text-2xl font-bold text-slate-900">Your score</h1>
           <p className="mt-3 text-5xl font-bold text-indigo-600">
-            {score}/{questions.length}
+            {displayScore}/{displayTotal}
           </p>
           <p className="mt-1 text-slate-600">{pct}% correct</p>
+
+          {/* The code lets the user re-open this exact result later. */}
+          {resultCode && (
+            <div className="mx-auto mt-6 max-w-sm rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+              <p className="text-sm text-slate-600">
+                Your result code — save it to view this result again later:
+              </p>
+              <p className="mt-1 text-3xl font-bold tracking-widest text-indigo-700">
+                {resultCode}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                Enter it on the start screen to reopen this result.
+              </p>
+            </div>
+          )}
+
           <div className="mt-6 flex justify-center gap-3">
             <button
               onClick={start}
@@ -383,18 +524,33 @@ export default function QuizPage() {
 
   function finishQuiz() {
     setShowSubmitConfirm(false);
+    setViewResult(null);
+    setResultCode(null);
     setPhase("results");
     // This attempt is done — drop the saved progress so the next visit
     // starts fresh rather than offering to resume a completed quiz.
     clearSavedProgress();
     setSaved(null);
-    // Record this attempt for admin engagement stats (best-effort —
-    // a failure here must never block the user from seeing their result).
+    // Record this attempt — this both powers admin engagement stats and
+    // returns the 6-digit code the user uses to re-open this result later.
+    // Best-effort: a failure here must never block the user's result; they
+    // simply won't get a code that time.
     fetch("/api/submissions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ score, total: questions.length }),
-    }).catch(() => {});
+      body: JSON.stringify({
+        score,
+        total: questions.length,
+        answers,
+        order: questions.map((item) => item.id),
+      }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data?.code) setResultCode(String(data.code));
+      })
+      .catch(() => {});
   }
 
   return (

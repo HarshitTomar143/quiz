@@ -30,11 +30,15 @@ model Option {
   @@index([questionId])
 }
 
-// One row per completed quiz attempt, used for admin engagement stats.
+// One row per completed quiz attempt, used for admin engagement stats and
+// for letting a user re-open their result later via a short code.
 model Submission {
   id        String   @id @default(cuid())
+  code      String   @unique // 6-digit code the user enters to re-view this result
   score     Int // marks the user got
   total     Int // total marks available at the time
+  answers   Json // { [questionId]: optionId } — used to rebuild the review screen
+  order     Json // string[] of question ids in the order shown — to rebuild the review
   createdAt DateTime @default(now())
 
   @@index([createdAt])

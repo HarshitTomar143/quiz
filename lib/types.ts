@@ -17,7 +17,12 @@ export type Question = {
 
 export type Submission = {
   id: string;
+  code: string;
   score: number;
   total: number;
+  // questionId -> selected optionId, and the order questions were shown in.
+  // Stored so the result (with per-question review) can be rebuilt later.
+  answers: Record<string, string>;
+  order: string[];
   createdAt: string;
 };
