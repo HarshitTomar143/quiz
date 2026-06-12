@@ -8,14 +8,14 @@ import type { Question } from "@/lib/types";
 // Edit these lines to change the disclaimer text.
 const DISCLAIMER_PARAGRAPHS = [
   "यह एक AI रिज़ल्ट प्रेडिक्टर है। अब आपके अंकों की गणना परीक्षा बोर्ड द्वारा जारी आधिकारिक उत्तर कुंजी के आधार पर की जाती है।",
-  "प्रत्येक प्रश्न 3.6 अंक का है। आपका परिणाम आपके सही उत्तरों की संख्या और कुल अंकों — दोनों के रूप में दिखाया जाता है।",
+  "प्रत्येक प्रश्न 4 अंक का है। आपका परिणाम आपके सही उत्तरों की संख्या और कुल अंकों — दोनों के रूप में दिखाया जाता है।",
   "यह AI आधारित अनुमान केवल स्व-मूल्यांकन के लिए है। चयन की अंतिम पुष्टि बोर्ड द्वारा जारी आधिकारिक परिणाम से ही मानी जाएगी।",
 ];
 
 // Shown in the "How it works" popup opened from the (i) info button.
 // Edit these steps to change the on-screen instructions.
 const INSTRUCTION_STEPS = [
-  "अपनी श्रेणी (General/OBC/SC/ST) चुनें — आपकी चयन संभावना उसी श्रेणी की अपेक्षित कट-ऑफ से आँकी जाती है।",
+  "अपनी श्रेणी (General/OBC/SC/ST) चुनें — आपकी चयन संभावना उसी श्रेणी के आधार पर आँकी जाती है।",
   "हर प्रश्न में वही विकल्प चुनें जो आपने वास्तविक परीक्षा में चुना था।",
   "जिस प्रश्न पर बाद में लौटना चाहते हैं उसे चिह्नित करने के लिए “Flag for review” का उपयोग करें, और प्रश्नों के बीच जाने के लिए “All questions” का।",
   "अपने सभी उत्तर भरने के बाद, अपना अनुमानित स्कोर और चयन की संभावना देखने के लिए “Submit quiz” पर टैप करें।",
@@ -42,13 +42,13 @@ const CATEGORIES: {
 
 const TOTAL_VACANCIES = 509;
 
-// Each question carries 3.6 marks. Used to convert a correct-answer count into
-// the marks shown on the result card.
-const MARKS_PER_QUESTION = 3.6;
+// Each question carries 4 marks. Used to convert a correct-answer count into
+// the marks shown on the result card (125 questions → 500 total marks).
+const MARKS_PER_QUESTION = 4;
 
-// Round marks to one decimal place (e.g. 118 correct → 424.8 marks).
+// Convert a correct-answer count into marks (e.g. 118 correct → 472 marks).
 function toMarks(correct: number) {
-  return Math.round(correct * MARKS_PER_QUESTION * 10) / 10;
+  return correct * MARKS_PER_QUESTION;
 }
 
 function categoryInfo(cat: Category | null) {
@@ -319,7 +319,6 @@ function ReportCard({
   total,
   pct,
   selected,
-  cutoff,
   categoryLabel,
   vacancies,
   avatarId,
@@ -330,7 +329,6 @@ function ReportCard({
   total: number;
   pct: number;
   selected: boolean;
-  cutoff: number;
   categoryLabel: string;
   vacancies: number;
   avatarId: string;
@@ -511,7 +509,7 @@ function ReportCard({
         {verdictMsg}
       </text>
 
-      {/* Category cut-off + vacancy facts */}
+      {/* Category vacancy facts */}
       <text
         x="320"
         y={infoTop}
@@ -520,16 +518,6 @@ function ReportCard({
         fillOpacity="0.9"
         fontSize="14"
         fontWeight="600"
-      >
-        {categoryLabel} cut-off: {cutoff} correct ({toMarks(cutoff)} marks)
-      </text>
-      <text
-        x="320"
-        y={infoTop + 24}
-        textAnchor="middle"
-        fill="#ffffff"
-        fillOpacity="0.75"
-        fontSize="13"
       >
         {categoryLabel} vacancies (Balak): {vacancies} of {TOTAL_VACANCIES}
       </text>
@@ -1000,8 +988,7 @@ export default function QuizPage() {
                 Before you begin
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Your selection chance is judged against the expected cut-off for
-                your category.
+                Your selection chance is estimated for your category.
               </p>
             </div>
 
@@ -1029,7 +1016,7 @@ export default function QuizPage() {
                         {c.label}
                       </span>
                       <span className="mt-0.5 block text-xs text-slate-500">
-                        Cut-off: {c.cutoff} correct · {c.vacancies} vacancies
+                        {c.vacancies} vacancies
                       </span>
                     </button>
                   );
@@ -1122,7 +1109,6 @@ export default function QuizPage() {
             total={displayTotal}
             pct={pct}
             selected={selected}
-            cutoff={cat.cutoff}
             categoryLabel={cat.label}
             vacancies={cat.vacancies}
             avatarId={avatarId}
@@ -1138,9 +1124,8 @@ export default function QuizPage() {
                 </p>
                 <p className="mt-1.5 text-sm text-emerald-700">
                   आपके अंक ({toMarks(displayScore)}) और सही उत्तर ({displayScore})
-                  आपकी श्रेणी की कट-ऑफ ({cat.cutoff} सही ·{" "}
-                  {toMarks(cat.cutoff)} अंक) से अधिक हैं। कृपया थोड़ा प्रतीक्षा
-                  करें जब तक हमें और अधिक डेटा प्राप्त हो जाए।
+                  आपकी श्रेणी में चयन के लिए पर्याप्त प्रतीत होते हैं। कृपया थोड़ा
+                  प्रतीक्षा करें जब तक हमें और अधिक डेटा प्राप्त हो जाए।
                 </p>
               </div>
             ) : (
@@ -1150,8 +1135,7 @@ export default function QuizPage() {
                 </p>
                 <p className="mt-1.5 text-sm text-red-700">
                   आपके अंक ({toMarks(displayScore)}) और सही उत्तर ({displayScore})
-                  आपकी श्रेणी की कट-ऑफ ({cat.cutoff} सही ·{" "}
-                  {toMarks(cat.cutoff)} अंक) से कम हैं।
+                  आपकी श्रेणी में चयन के लिए पर्याप्त नहीं प्रतीत होते हैं।
                 </p>
               </div>
             )}
